@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -41,6 +42,8 @@ def init_db(db_path: str | None = None) -> None:
                 email TEXT NOT NULL UNIQUE,
                 session_token TEXT UNIQUE,
                 password_hash TEXT NOT NULL,
+                auth_provider TEXT NOT NULL DEFAULT 'local',
+                oauth_sub TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             """
@@ -51,6 +54,10 @@ def init_db(db_path: str | None = None) -> None:
         }
         if "session_token" not in existing_user_columns:
             cursor.execute("ALTER TABLE users ADD COLUMN session_token TEXT UNIQUE")
+        if "auth_provider" not in existing_user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'")
+        if "oauth_sub" not in existing_user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN oauth_sub TEXT NOT NULL DEFAULT ''")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS items (
@@ -67,6 +74,8 @@ def init_db(db_path: str | None = None) -> None:
                 location_label TEXT NOT NULL DEFAULT '',
                 reward_note TEXT NOT NULL DEFAULT '',
                 image_filename TEXT NOT NULL DEFAULT '',
+                image_url TEXT NOT NULL DEFAULT '',
+                image_meta TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             """
@@ -80,6 +89,14 @@ def init_db(db_path: str | None = None) -> None:
         if "image_filename" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE items ADD COLUMN image_filename TEXT NOT NULL DEFAULT ''"
+            )
+        if "image_url" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE items ADD COLUMN image_url TEXT NOT NULL DEFAULT ''"
+            )
+        if "image_meta" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE items ADD COLUMN image_meta TEXT NOT NULL DEFAULT ''"
             )
         cursor.execute(
             """
@@ -150,6 +167,8 @@ def create_item(
     location_label: str = "",
     reward_note: str = "",
     image_filename: str = "",
+    image_url: str = "",
+    image_meta: Dict[str, Any] | None = None,
     user_id: int | None = None,
 ) -> int:
     """Insert a new lost/found item and return its ID."""
@@ -167,9 +186,9 @@ def create_item(
             """
             INSERT INTO items (
                 item_type, user_id, category, title, description, contact_name, contact_phone,
-                latitude, longitude, location_label, reward_note, image_filename
+                latitude, longitude, location_label, reward_note, image_filename, image_url, image_meta
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_type,
@@ -184,6 +203,8 @@ def create_item(
                 location_label.strip(),
                 reward_note.strip(),
                 image_filename.strip(),
+                image_url.strip(),
+                json.dumps(image_meta or {}),
             ),
         )
         connection.commit()
@@ -198,7 +219,7 @@ def get_item(db_path: str | None, item_id: int) -> Dict[str, Any] | None:
             """
             SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
                    i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
-                   i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+                   i.reward_note, i.image_filename, i.image_url, i.image_meta, i.created_at, u.email AS owner_email
             FROM items i
             LEFT JOIN users u ON u.id = i.user_id
             WHERE i.id = ?
@@ -219,7 +240,7 @@ def get_all_items(
     sql = """
         SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
                i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
-               i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+               i.reward_note, i.image_filename, i.image_url, i.image_meta, i.created_at, u.email AS owner_email
         FROM items i
         LEFT JOIN users u ON u.id = i.user_id
         WHERE 1 = 1
@@ -282,7 +303,7 @@ def get_matches_for_item(
             """
             SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
                    i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
-                   i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+                   i.reward_note, i.image_filename, i.image_url, i.image_meta, i.created_at, u.email AS owner_email
             FROM items i
             LEFT JOIN users u ON u.id = i.user_id
             WHERE i.item_type = ?
@@ -316,6 +337,18 @@ def item_to_dict(item: Dict[str, Any] | None) -> Dict[str, Any] | None:
     if not item:
         return None
 
+    parsed_image_meta: Dict[str, Any] = {}
+    raw_meta = item.get("image_meta", "")
+    if raw_meta:
+        try:
+            parsed_image_meta = json.loads(raw_meta)
+        except json.JSONDecodeError:
+            parsed_image_meta = {}
+
+    resolved_image_url = item.get("image_url", "")
+    if not resolved_image_url and item.get("image_filename", ""):
+        resolved_image_url = f"/uploads/{item.get('image_filename', '')}"
+
     payload = {
         "id": item["id"],
         "item_type": item["item_type"],
@@ -330,7 +363,8 @@ def item_to_dict(item: Dict[str, Any] | None) -> Dict[str, Any] | None:
         "location_label": item["location_label"],
         "reward_note": item["reward_note"],
         "image_filename": item.get("image_filename", ""),
-        "image_url": f"/uploads/{item.get('image_filename', '')}" if item.get("image_filename", "") else "",
+        "image_url": resolved_image_url,
+        "image_meta": parsed_image_meta,
         "owner_email": item.get("owner_email"),
         "created_at": item["created_at"],
     }
@@ -345,6 +379,8 @@ def create_user(
     name: str,
     email: str,
     password_hash: str,
+    auth_provider: str = "local",
+    oauth_sub: str = "",
 ) -> int:
     """Create a user account and return its ID."""
     normalized_name = _clean_text(name, "name")
@@ -353,10 +389,10 @@ def create_user(
         cursor = connection.cursor()
         cursor.execute(
             """
-            INSERT INTO users (name, email, password_hash)
-            VALUES (?, ?, ?)
+            INSERT INTO users (name, email, password_hash, auth_provider, oauth_sub)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (normalized_name, normalized_email, password_hash),
+            (normalized_name, normalized_email, password_hash, auth_provider, oauth_sub),
         )
         connection.commit()
         return int(cursor.lastrowid)
@@ -369,7 +405,7 @@ def get_user_by_email(db_path: str | None, email: str) -> Dict[str, Any] | None:
         cursor = connection.cursor()
         return cursor.execute(
             """
-            SELECT id, name, email, password_hash, created_at
+            SELECT id, name, email, session_token, password_hash, auth_provider, oauth_sub, created_at
             FROM users
             WHERE email = ?
             """,
@@ -383,12 +419,58 @@ def get_user_by_id(db_path: str | None, user_id: int) -> Dict[str, Any] | None:
         cursor = connection.cursor()
         return cursor.execute(
             """
-            SELECT id, name, email, session_token, password_hash, created_at
+            SELECT id, name, email, session_token, password_hash, auth_provider, oauth_sub, created_at
             FROM users
             WHERE id = ?
             """,
             (user_id,),
         ).fetchone()
+
+
+def get_user_by_oauth_sub(
+    db_path: str | None,
+    *,
+    auth_provider: str,
+    oauth_sub: str,
+) -> Dict[str, Any] | None:
+    """Fetch one user by OAuth provider subject."""
+    provider = auth_provider.strip().lower()
+    sub = oauth_sub.strip()
+    if not provider or not sub:
+        return None
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT id, name, email, session_token, password_hash, auth_provider, oauth_sub, created_at
+            FROM users
+            WHERE auth_provider = ? AND oauth_sub = ?
+            """,
+            (provider, sub),
+        ).fetchone()
+
+
+def link_user_oauth(
+    db_path: str | None,
+    *,
+    user_id: int,
+    auth_provider: str,
+    oauth_sub: str,
+) -> None:
+    """Attach OAuth provider/sub information to an existing user."""
+    provider = auth_provider.strip().lower()
+    sub = oauth_sub.strip()
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE users
+            SET auth_provider = ?, oauth_sub = ?
+            WHERE id = ?
+            """,
+            (provider, sub, user_id),
+        )
+        connection.commit()
 
 
 def set_user_session_token(
@@ -423,7 +505,7 @@ def get_user_by_session_token(
         cursor = connection.cursor()
         return cursor.execute(
             """
-            SELECT id, name, email, session_token, password_hash, created_at
+            SELECT id, name, email, session_token, password_hash, auth_provider, oauth_sub, created_at
             FROM users
             WHERE session_token = ?
             """,

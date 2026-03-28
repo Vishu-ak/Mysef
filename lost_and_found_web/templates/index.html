@@ -24,6 +24,9 @@
           <h2>Account</h2>
           <span id="authStatus">Not logged in</span>
         </div>
+        <button id="googleSignInBtn" type="button" class="google-signin-button hidden">
+          Continue with Google
+        </button>
         <div id="authForms">
           <form id="registerForm" class="auth-form">
             <h3>Create account</h3>
@@ -251,6 +254,9 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    {% if google_client_id %}
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    {% endif %}
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>

@@ -7,20 +7,24 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "&copy; OpenStreetMap contributors",
 }).addTo(map);
 
+const registerForm = document.getElementById("registerForm");
+const loginForm = document.getElementById("loginForm");
+const authForms = document.getElementById("authForms");
+const authActions = document.getElementById("authActions");
+const authStatus = document.getElementById("authStatus");
+const authUser = document.getElementById("authUser");
+const authMessage = document.getElementById("authMessage");
+const logoutBtn = document.getElementById("logoutBtn");
+const googleLoginBtn = document.getElementById("googleLoginBtn");
+const googleCredentialInput = document.getElementById("googleCredentialInput");
+
 const form = document.getElementById("itemForm");
 const formMessage = document.getElementById("formMessage");
-const authMessage = document.getElementById("authMessage");
 const latitudeInput = document.getElementById("latitudeInput");
 const longitudeInput = document.getElementById("longitudeInput");
 const useMyLocationBtn = document.getElementById("useMyLocationBtn");
-const imageInput = document.getElementById("imageInput");
-
-const authForm = document.getElementById("authForm");
-const registerForm = document.getElementById("registerForm");
-const loginBtn = document.getElementById("loginBtn");
-const registerBtn = document.getElementById("registerBtn");
-const logoutBtn = document.getElementById("logoutBtn");
-const userBadge = document.getElementById("userBadge");
+const itemImageInput = document.getElementById("itemImageInput");
+const imagePreview = document.getElementById("imagePreview");
 
 const filterType = document.getElementById("filterType");
 const filterCategory = document.getElementById("filterCategory");
@@ -38,9 +42,10 @@ const itemCardTemplate = document.getElementById("itemCardTemplate");
 let draftPin = null;
 let selectedPoint = null;
 const itemMarkersLayer = L.layerGroup().addTo(map);
-const itemsById = new Map();
+
 let sessionToken = localStorage.getItem("lostfound_session_token") || "";
 let currentUser = null;
+let appConfig = { google_client_id: "" };
 
 function escapeHtml(value) {
   return String(value)
@@ -53,57 +58,19 @@ function escapeHtml(value) {
 
 function setFormMessage(message, isError = false) {
   formMessage.textContent = message;
-  formMessage.classList.toggle("error", isError);
-  formMessage.classList.toggle("success", !isError && Boolean(message));
+  formMessage.classList.remove("error", "success", "info");
+  formMessage.classList.add(isError ? "error" : "success");
 }
 
 function setAuthMessage(message, isError = false) {
   authMessage.textContent = message;
-  authMessage.classList.toggle("error", isError);
-  authMessage.classList.toggle("success", !isError && Boolean(message));
-}
-
-function setLoggedInState(user, token) {
-  currentUser = user;
-  if (token) {
-    sessionToken = token;
-    localStorage.setItem("lostfound_session_token", token);
-  }
-  loginBtn.disabled = true;
-  registerBtn.disabled = true;
-  logoutBtn.disabled = false;
-  userBadge.textContent = `Logged in: ${user.name} (${user.email})`;
-}
-
-function setLoggedOutState() {
-  currentUser = null;
-  sessionToken = "";
-  localStorage.removeItem("lostfound_session_token");
-  loginBtn.disabled = false;
-  registerBtn.disabled = false;
-  logoutBtn.disabled = true;
-  userBadge.textContent = "Not logged in";
-}
-
-async function apiFetch(url, options = {}) {
-  const headers = new Headers(options.headers || {});
-  if (sessionToken) {
-    headers.set("Authorization", `Bearer ${sessionToken}`);
-  }
-  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-  return response;
+  authMessage.classList.remove("error", "success", "info");
+  authMessage.classList.add(isError ? "error" : "success");
 }
 
 function setSelectedPoint(lat, lon, source) {
   const normalizedLat = Number(lat);
   const normalizedLon = Number(lon);
-
   if (Number.isNaN(normalizedLat) || Number.isNaN(normalizedLon)) {
     return;
   }
@@ -120,7 +87,40 @@ function setSelectedPoint(lat, lon, source) {
     draftPin.setLatLng([normalizedLat, normalizedLon]);
   }
 
-  setFormMessage(`Location selected from ${source}.`, false);
+  setFormMessage(`Location selected from ${source}.`);
+}
+
+function setLoggedInState(user, token = "") {
+  currentUser = user;
+  if (token) {
+    sessionToken = token;
+    localStorage.setItem("lostfound_session_token", token);
+  }
+  authForms.classList.add("hidden");
+  authActions.classList.remove("hidden");
+  authStatus.textContent = "Logged in";
+  authUser.textContent = `${user.name} (${user.email})`;
+}
+
+function setLoggedOutState() {
+  currentUser = null;
+  sessionToken = "";
+  localStorage.removeItem("lostfound_session_token");
+  authForms.classList.remove("hidden");
+  authActions.classList.add("hidden");
+  authStatus.textContent = "Not logged in";
+  authUser.textContent = "";
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (sessionToken) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return fetch(url, { ...options, headers });
 }
 
 function markerColorByType(itemType) {
@@ -144,11 +144,30 @@ function addItemMarker(item) {
   );
 }
 
+function buildWhatsappHref(item) {
+  const phoneDigits = String(item.contact_phone || "").replace(/\D/g, "");
+  if (!phoneDigits) {
+    return "";
+  }
+  const msg = encodeURIComponent(
+    `Hi ${item.contact_name}, I am contacting you about "${item.title}" on Lost & Found Connect.`
+  );
+  return `https://wa.me/${phoneDigits}?text=${msg}`;
+}
+
+function buildMailtoHref(item) {
+  if (!item.owner_email) {
+    return "";
+  }
+  const subject = encodeURIComponent(`Regarding "${item.title}" (${item.item_type})`);
+  const body = encodeURIComponent(
+    `Hello ${item.contact_name},\n\nI am reaching out about your item listing: "${item.title}".`
+  );
+  return `mailto:${item.owner_email}?subject=${subject}&body=${body}`;
+}
+
 function createItemCard(item) {
   const fragment = itemCardTemplate.content.cloneNode(true);
-  const card = fragment.querySelector(".item-card");
-  card.dataset.itemId = String(item.id);
-
   const titleEl = fragment.querySelector(".item-title");
   const metaEl = fragment.querySelector(".item-meta");
   const badgeEl = fragment.querySelector(".item-badge");
@@ -156,9 +175,10 @@ function createItemCard(item) {
   const contactEl = fragment.querySelector(".item-contact");
   const locationEl = fragment.querySelector(".item-location");
   const imageEl = fragment.querySelector(".item-image");
-  const contactButtonsEl = fragment.querySelector(".contact-buttons");
-  const whatsappEl = fragment.querySelector(".whatsapp-btn");
-  const emailEl = fragment.querySelector(".email-btn");
+  const whatsappBtn = fragment.querySelector(".contact-whatsapp-btn");
+  const emailBtn = fragment.querySelector(".contact-email-btn");
+  const showMapBtn = fragment.querySelector(".show-on-map-btn");
+  const findMatchesBtn = fragment.querySelector(".find-matches-btn");
   const matchesContainer = fragment.querySelector(".matches-container");
 
   titleEl.textContent = item.title;
@@ -168,47 +188,40 @@ function createItemCard(item) {
   descriptionEl.textContent = item.description;
   contactEl.textContent = `Contact: ${item.contact_name} (${item.contact_phone})`;
   locationEl.textContent = `Location: ${item.location_label || `${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}`}`;
-  const imageUrl = item.image_url || "";
-  if (imageUrl) {
-    imageEl.src = imageUrl;
-    imageEl.alt = item.title;
-    imageEl.hidden = false;
+
+  if (item.image_url) {
+    imageEl.src = item.image_url;
+    imageEl.classList.remove("hidden");
+  } else {
+    imageEl.classList.add("hidden");
   }
 
-  const phoneDigits = String(item.contact_phone || "").replace(/\D/g, "");
-  if (phoneDigits) {
-    const textMessage = encodeURIComponent(
-      `Hi ${item.contact_name}, I am contacting you about "${item.title}" on Lost & Found Connect.`
-    );
-    whatsappEl.href = `https://wa.me/${phoneDigits}?text=${textMessage}`;
+  const whatsappHref = buildWhatsappHref(item);
+  if (whatsappHref) {
+    whatsappBtn.href = whatsappHref;
+    whatsappBtn.classList.remove("hidden");
   } else {
-    whatsappEl.hidden = true;
-  }
-  if (item.owner_email) {
-    const subject = encodeURIComponent(`Regarding "${item.title}" (${item.item_type})`);
-    const body = encodeURIComponent(
-      `Hello ${item.contact_name},%0D%0A%0D%0AI am reaching out about your item listing: "${item.title}".`
-    );
-    emailEl.href = `mailto:${item.owner_email}?subject=${subject}&body=${body}`;
-  } else {
-    emailEl.hidden = true;
-  }
-  if (whatsappEl.hidden && emailEl.hidden) {
-    contactButtonsEl.hidden = true;
+    whatsappBtn.classList.add("hidden");
   }
 
-  const showMapBtn = fragment.querySelector(".show-on-map-btn");
+  const mailtoHref = buildMailtoHref(item);
+  if (mailtoHref) {
+    emailBtn.href = mailtoHref;
+    emailBtn.classList.remove("hidden");
+  } else {
+    emailBtn.classList.add("hidden");
+  }
+
   showMapBtn.addEventListener("click", () => {
     map.setView([item.latitude, item.longitude], 15);
   });
 
-  const findMatchesBtn = fragment.querySelector(".find-matches-btn");
   findMatchesBtn.addEventListener("click", async () => {
     findMatchesBtn.disabled = true;
     findMatchesBtn.textContent = "Finding...";
     try {
       const radius = Number(filterRadius.value) || 10;
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/items/${item.id}/matches?distance_km=${encodeURIComponent(radius)}&time_days=30`
       );
       const payload = await response.json();
@@ -221,19 +234,33 @@ function createItemCard(item) {
         return;
       }
 
-      const listHtml = payload.matches
-        .map(
-          (match) => `
-          <div class="match-row">
-            <strong>${escapeHtml(match.title)}</strong>
-            <span>${escapeHtml(match.item_type.toUpperCase())}</span>
-            <span>${Number(match.distance_km).toFixed(2)} km away</span>
-            <span>${escapeHtml(match.contact_name)} (${escapeHtml(match.contact_phone)})</span>
-          </div>
-        `
-        )
+      const rows = payload.matches
+        .map((match) => {
+          const waHref = buildWhatsappHref(match);
+          const emHref = buildMailtoHref(match);
+          return `
+            <div class="match-row">
+              <strong>${escapeHtml(match.title)}</strong>
+              <span>${escapeHtml(match.item_type.toUpperCase())}</span>
+              <span>${Number(match.distance_km).toFixed(2)} km away</span>
+              <span>${escapeHtml(match.contact_name)} (${escapeHtml(match.contact_phone)})</span>
+              <div class="match-contact-actions">
+                ${
+                  waHref
+                    ? `<a class="ghost-button" target="_blank" rel="noopener noreferrer" href="${waHref}">WhatsApp</a>`
+                    : ""
+                }
+                ${
+                  emHref
+                    ? `<a class="ghost-button" target="_blank" rel="noopener noreferrer" href="${emHref}">Email</a>`
+                    : ""
+                }
+              </div>
+            </div>
+          `;
+        })
         .join("");
-      matchesContainer.innerHTML = `<h4>Nearby possible matches</h4>${listHtml}`;
+      matchesContainer.innerHTML = `<h4>Nearby possible matches</h4>${rows}`;
     } catch (error) {
       matchesContainer.innerHTML = `<p class="match-empty error">${escapeHtml(error.message)}</p>`;
     } finally {
@@ -246,18 +273,13 @@ function createItemCard(item) {
 }
 
 function renderItems(items) {
-  itemsById.clear();
   itemMarkersLayer.clearLayers();
   itemsList.innerHTML = "";
-
   for (const item of items) {
-    itemsById.set(item.id, item);
     addItemMarker(item);
     itemsList.appendChild(createItemCard(item));
   }
-
   itemCount.textContent = `${items.length} item${items.length === 1 ? "" : "s"}`;
-
   if (!items.length) {
     itemsList.innerHTML = `<p class="match-empty">No items found for the selected filters.</p>`;
   }
@@ -265,16 +287,9 @@ function renderItems(items) {
 
 function collectQueryParams() {
   const params = new URLSearchParams();
-  if (filterType.value) {
-    params.set("type", filterType.value);
-  }
-  if (filterCategory.value) {
-    params.set("category", filterCategory.value);
-  }
-  if (searchText.value.trim()) {
-    params.set("q", searchText.value.trim());
-  }
-
+  if (filterType.value) params.set("type", filterType.value);
+  if (filterCategory.value) params.set("category", filterCategory.value);
+  if (searchText.value.trim()) params.set("q", searchText.value.trim());
   const lat = filterLat.value.trim();
   const lon = filterLon.value.trim();
   if (lat && lon) {
@@ -297,9 +312,9 @@ async function loadItems() {
 }
 
 async function uploadImageIfPresent() {
-  const file = imageInput.files && imageInput.files[0];
+  const file = itemImageInput.files && itemImageInput.files[0];
   if (!file) {
-    return "";
+    return { image_url: "", image_filename: "" };
   }
   const body = new FormData();
   body.append("image", file);
@@ -308,20 +323,26 @@ async function uploadImageIfPresent() {
   if (!response.ok) {
     throw new Error(payload.error || "Image upload failed");
   }
-  return payload.image_url || "";
+  return {
+    image_url: payload.image_url || "",
+    image_filename: payload.image_filename || "",
+  };
 }
 
 async function submitItem(event) {
   event.preventDefault();
-  const formData = new FormData(form);
+  if (!sessionToken) {
+    throw new Error("Login required before posting items.");
+  }
 
+  const formData = new FormData(form);
   const lat = Number(formData.get("latitude"));
   const lon = Number(formData.get("longitude"));
   if (Number.isNaN(lat) || Number.isNaN(lon)) {
     throw new Error("Choose location by map click or fill valid latitude and longitude.");
   }
 
-  const imageUrl = await uploadImageIfPresent();
+  const upload = await uploadImageIfPresent();
   const payload = {
     item_type: formData.get("item_type"),
     category: formData.get("category"),
@@ -330,8 +351,8 @@ async function submitItem(event) {
     contact_name: formData.get("contact_name"),
     contact_phone: formData.get("contact_phone"),
     location_label: formData.get("location_label"),
-    reward_note: formData.get("reward_note"),
-    image_url: imageUrl,
+    image_url: upload.image_url,
+    image_filename: upload.image_filename,
     lat,
     lon,
   };
@@ -345,27 +366,129 @@ async function submitItem(event) {
     throw new Error(created.error || "Could not submit item");
   }
 
-  setFormMessage("Item submitted. Looking for nearby matches...", false);
-  await loadItems();
-
-  const savedItem = created.item;
-  map.setView([savedItem.latitude, savedItem.longitude], 15);
+  setFormMessage("Item submitted successfully.");
   form.reset();
-  imageInput.value = "";
+  imagePreview.classList.add("hidden");
+  await loadItems();
 }
 
-function registerMapHandlers() {
-  map.on("click", (event) => {
-    setSelectedPoint(event.latlng.lat, event.latlng.lng, "map click");
+function updateGoogleButtonVisibility() {
+  if (!googleLoginBtn) {
+    return;
+  }
+  if (appConfig.google_client_id) {
+    googleLoginBtn.classList.remove("hidden");
+  } else {
+    googleLoginBtn.classList.add("hidden");
+  }
+}
+
+async function refreshCurrentUser() {
+  const response = await apiFetch("/api/auth/me");
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Unable to check session");
+  }
+  if (payload.user) {
+    setLoggedInState(payload.user);
+  } else {
+    setLoggedOutState();
+  }
+}
+
+async function loadConfig() {
+  const response = await fetch("/api/config");
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Failed to load app config");
+  }
+  appConfig = payload;
+  updateGoogleButtonVisibility();
+}
+
+async function handleGoogleLogin() {
+  const credential = String(googleCredentialInput.value || "").trim();
+  if (!credential) {
+    throw new Error("Paste Google ID token in the field first.");
+  }
+  const response = await apiFetch("/api/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
   });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || "Google login failed");
+  }
+  setLoggedInState(payload.user, payload.session_token || "");
+  googleCredentialInput.value = "";
+}
+
+function registerAuthHandlers() {
+  registerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const formData = new FormData(registerForm);
+      const response = await apiFetch("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          name: formData.get("name"),
+          email: formData.get("email"),
+          password: formData.get("password"),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Registration failed");
+      setLoggedInState(payload.user, payload.session_token || "");
+      setAuthMessage("Registered and logged in.");
+    } catch (error) {
+      setAuthMessage(error.message, true);
+    }
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const formData = new FormData(loginForm);
+      const response = await apiFetch("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: formData.get("email"),
+          password: formData.get("password"),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Login failed");
+      setLoggedInState(payload.user, payload.session_token || "");
+      setAuthMessage("Logged in successfully.");
+    } catch (error) {
+      setAuthMessage(error.message, true);
+    }
+  });
+
+  logoutBtn.addEventListener("click", async () => {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      setLoggedOutState();
+      setAuthMessage("Logged out.");
+    }
+  });
+
+  if (googleLoginBtn) {
+    googleLoginBtn.addEventListener("click", async () => {
+      try {
+        await handleGoogleLogin();
+        setAuthMessage("Google login successful.");
+      } catch (error) {
+        setAuthMessage(error.message, true);
+      }
+    });
+  }
 }
 
 function registerFormHandlers() {
   form.addEventListener("submit", async (event) => {
     try {
-      if (!sessionToken) {
-        throw new Error("Login required before posting items.");
-      }
       await submitItem(event);
     } catch (error) {
       setFormMessage(error.message, true);
@@ -383,83 +506,25 @@ function registerFormHandlers() {
         setSelectedPoint(latitude, longitude, "device location");
         map.setView([latitude, longitude], 14);
       },
-      () => {
-        setFormMessage("Could not read your current location.", true);
-      }
+      () => setFormMessage("Could not read your current location.", true)
     );
   });
-}
 
-async function refreshCurrentUser() {
-  const response = await apiFetch("/api/auth/me");
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || "Failed to read session");
-  }
-  if (payload.user) {
-    setLoggedInState(payload.user, sessionToken);
-  } else {
-    setLoggedOutState();
-  }
-}
-
-function registerAuthHandlers() {
-  loginBtn.addEventListener("click", async () => {
-    const formData = new FormData(authForm);
-    const email = String(formData.get("email") || "").trim();
-    const password = String(formData.get("password") || "");
-    if (!email || !password) {
-      setAuthMessage("Email and password are required for login.", true);
+  itemImageInput.addEventListener("change", () => {
+    const file = itemImageInput.files && itemImageInput.files[0];
+    if (!file) {
+      imagePreview.classList.add("hidden");
+      imagePreview.removeAttribute("src");
       return;
     }
-    try {
-      const response = await apiFetch("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Login failed");
-      }
-      setLoggedInState(payload.user, payload.session_token || "");
-      setAuthMessage("Logged in successfully.");
-    } catch (error) {
-      setAuthMessage(error.message, true);
-    }
+    imagePreview.src = URL.createObjectURL(file);
+    imagePreview.classList.remove("hidden");
   });
+}
 
-  registerBtn.addEventListener("click", async () => {
-    const formData = new FormData(registerForm);
-    const name = String(formData.get("name") || "").trim();
-    const email = String(formData.get("email") || "").trim();
-    const password = String(formData.get("password") || "");
-    if (!name || !email || !password) {
-      setAuthMessage("Name, email, and password are required for register.", true);
-      return;
-    }
-    try {
-      const response = await apiFetch("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ name, email, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Registration failed");
-      }
-      setLoggedInState(payload.user, payload.session_token || "");
-      setAuthMessage("Registered and logged in successfully.");
-    } catch (error) {
-      setAuthMessage(error.message, true);
-    }
-  });
-
-  logoutBtn.addEventListener("click", async () => {
-    try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
-    } finally {
-      setLoggedOutState();
-      setAuthMessage("Logged out.");
-    }
+function registerMapHandlers() {
+  map.on("click", (event) => {
+    setSelectedPoint(event.latlng.lat, event.latlng.lng, "map click");
   });
 }
 
@@ -471,7 +536,6 @@ function registerSearchHandlers() {
       setFormMessage(error.message, true);
     }
   });
-
   loadAllBtn.addEventListener("click", async () => {
     filterType.value = "";
     filterCategory.value = "";
@@ -479,10 +543,9 @@ function registerSearchHandlers() {
     filterLat.value = "";
     filterLon.value = "";
     filterRadius.value = "10";
-
     try {
       await loadItems();
-      setFormMessage("Showing all reports.", false);
+      setFormMessage("Showing all reports.");
     } catch (error) {
       setFormMessage(error.message, true);
     }
@@ -491,10 +554,11 @@ function registerSearchHandlers() {
 
 async function bootstrap() {
   registerAuthHandlers();
-  registerMapHandlers();
   registerFormHandlers();
+  registerMapHandlers();
   registerSearchHandlers();
-  setFormMessage("Click on the map to pin the location before posting.");
+
+  await loadConfig();
   if (sessionToken) {
     try {
       await refreshCurrentUser();
@@ -505,6 +569,7 @@ async function bootstrap() {
     setLoggedOutState();
   }
   await loadItems();
+  setFormMessage("Click on the map to pin the location before posting.");
 }
 
 bootstrap().catch((error) => {
