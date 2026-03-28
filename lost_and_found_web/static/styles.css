@@ -1,0 +1,285 @@
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #dbe2ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #166534;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.header {
+  background: #0f172a;
+  color: #ffffff;
+  padding: 1rem 1.2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.header p {
+  margin: 0.4rem 0 0;
+  color: #cbd5e1;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 430px) 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  min-height: calc(100vh - 88px);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.form-card,
+.filter-card,
+.list-card {
+  grid-column: 1;
+}
+
+.map-card {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+}
+
+input,
+textarea,
+select,
+button {
+  width: 100%;
+  font: inherit;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.three-col {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.coords {
+  align-items: end;
+}
+
+.hint {
+  margin: 0.45rem 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.primary-button,
+.ghost-button {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button {
+  border: none;
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.primary-button:hover {
+  background: var(--primary-hover);
+}
+
+.ghost-button {
+  background: #ffffff;
+  color: var(--text);
+}
+
+.status-message {
+  min-height: 1.2rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.92rem;
+}
+
+.status-message.error {
+  color: var(--danger);
+}
+
+.status-message.success {
+  color: var(--success);
+}
+
+.status-message.info {
+  color: var(--muted);
+}
+
+.map-header,
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.legend {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.legend.lost {
+  color: #ef4444;
+  margin-right: 0.4rem;
+}
+
+.legend.found {
+  color: #16a34a;
+}
+
+#map {
+  width: 100%;
+  min-height: 68vh;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.actions {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.items-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.item-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.item-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.item-meta {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.item-description,
+.item-contact,
+.item-location {
+  margin: 0.55rem 0 0;
+  font-size: 0.95rem;
+}
+
+.item-badge {
+  display: inline-flex;
+  align-items: center;
+  height: fit-content;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.76rem;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.item-badge.lost {
+  background: #ef4444;
+}
+
+.item-badge.found {
+  background: #16a34a;
+}
+
+.item-actions {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.matches-container {
+  margin-top: 0.65rem;
+}
+
+.match-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1rem;
+}
+
+.match-list li {
+  margin: 0.28rem 0;
+}
+
+@media (max-width: 1050px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .map-card,
+  .form-card,
+  .filter-card,
+  .list-card {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  #map {
+    min-height: 52vh;
+  }
+}
+
+@media (max-width: 700px) {
+  .two-col,
+  .three-col,
+  .actions,
+  .item-actions {
+    grid-template-columns: 1fr;
+  }
+}

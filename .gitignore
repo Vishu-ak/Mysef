@@ -19,3 +19,4 @@ htmlcov/
 .venv/
 env/
 venv/
+lost_and_found_web/data/*.db
