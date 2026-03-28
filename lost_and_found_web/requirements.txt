@@ -3,3 +3,4 @@ gunicorn
 google-auth>=2.40.0
 cloudinary>=1.44.1
 boto3>=1.40.0
+python-dotenv>=1.0.1
