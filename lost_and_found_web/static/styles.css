@@ -21,6 +21,10 @@ body {
   background: var(--bg);
 }
 
+a {
+  color: inherit;
+}
+
 .header {
   background: #0f172a;
   color: #ffffff;
@@ -43,6 +47,10 @@ body {
   gap: 1rem;
   padding: 1rem;
   min-height: calc(100vh - 88px);
+}
+
+.auth-card {
+  grid-column: 1;
 }
 
 .card {
@@ -146,6 +154,67 @@ textarea {
   color: var(--muted);
 }
 
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.auth-tab-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.auth-form-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+
+.auth-state {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem;
+  margin-bottom: 0.7rem;
+}
+
+.auth-hidden {
+  display: none;
+}
+
+.small-button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  width: auto;
+  background: #fff;
+  cursor: pointer;
+}
+
+.required-login-note {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.image-preview-wrap {
+  margin-top: 0.5rem;
+}
+
+.preview-image {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
 .map-header,
 .section-header {
   display: flex;
@@ -218,6 +287,18 @@ textarea {
   font-size: 0.95rem;
 }
 
+.item-image {
+  margin-top: 0.65rem;
+}
+
+.item-image img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
 .item-badge {
   display: inline-flex;
   align-items: center;
@@ -240,12 +321,31 @@ textarea {
 .item-actions {
   margin-top: 0.65rem;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 0.5rem;
 }
 
 .matches-container {
   margin-top: 0.65rem;
+}
+
+.match-row {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0.4rem 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.match-empty {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.error {
+  color: var(--danger);
 }
 
 .match-list {

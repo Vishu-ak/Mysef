@@ -35,9 +35,28 @@ def init_db(db_path: str | None = None) -> None:
         cursor = connection.cursor()
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                session_token TEXT UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """
+        )
+        existing_user_columns = {
+            row["name"]
+            for row in cursor.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "session_token" not in existing_user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN session_token TEXT UNIQUE")
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 item_type TEXT NOT NULL CHECK(item_type IN ('lost', 'found')),
+                user_id INTEGER,
                 category TEXT NOT NULL,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
@@ -47,10 +66,21 @@ def init_db(db_path: str | None = None) -> None:
                 longitude REAL NOT NULL,
                 location_label TEXT NOT NULL DEFAULT '',
                 reward_note TEXT NOT NULL DEFAULT '',
+                image_filename TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             """
         )
+        existing_columns = {
+            row["name"]
+            for row in cursor.execute("PRAGMA table_info(items)").fetchall()
+        }
+        if "user_id" not in existing_columns:
+            cursor.execute("ALTER TABLE items ADD COLUMN user_id INTEGER")
+        if "image_filename" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE items ADD COLUMN image_filename TEXT NOT NULL DEFAULT ''"
+            )
         cursor.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_items_type_category
@@ -61,6 +91,24 @@ def init_db(db_path: str | None = None) -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_items_created_at
             ON items(created_at DESC);
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_items_user_id
+            ON items(user_id);
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+            ON users(email);
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_session_token
+            ON users(session_token);
             """
         )
         connection.commit()
@@ -101,6 +149,8 @@ def create_item(
     lon: float,
     location_label: str = "",
     reward_note: str = "",
+    image_filename: str = "",
+    user_id: int | None = None,
 ) -> int:
     """Insert a new lost/found item and return its ID."""
     normalized_type = _normalize_item_type(item_type)
@@ -116,13 +166,14 @@ def create_item(
         cursor.execute(
             """
             INSERT INTO items (
-                item_type, category, title, description, contact_name, contact_phone,
-                latitude, longitude, location_label, reward_note
+                item_type, user_id, category, title, description, contact_name, contact_phone,
+                latitude, longitude, location_label, reward_note, image_filename
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_type,
+                user_id,
                 normalized_category,
                 normalized_title,
                 normalized_description,
@@ -132,6 +183,7 @@ def create_item(
                 normalized_lon,
                 location_label.strip(),
                 reward_note.strip(),
+                image_filename.strip(),
             ),
         )
         connection.commit()
@@ -144,9 +196,11 @@ def get_item(db_path: str | None, item_id: int) -> Dict[str, Any] | None:
         cursor = connection.cursor()
         return cursor.execute(
             """
-            SELECT id, item_type, category, title, description, contact_name, contact_phone,
-                   latitude, longitude, location_label, reward_note, created_at
-            FROM items
+            SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
+                   i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
+                   i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+            FROM items i
+            LEFT JOIN users u ON u.id = i.user_id
             WHERE id = ?
             """,
             (item_id,),
@@ -163,9 +217,11 @@ def get_all_items(
 ) -> List[Dict[str, Any]]:
     """Return filtered items ordered by newest first."""
     sql = """
-        SELECT id, item_type, category, title, description, contact_name, contact_phone,
-               latitude, longitude, location_label, reward_note, created_at
-        FROM items
+        SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
+               i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
+               i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+        FROM items i
+        LEFT JOIN users u ON u.id = i.user_id
         WHERE 1 = 1
     """
     params: List[Any] = []
@@ -224,14 +280,16 @@ def get_matches_for_item(
         cursor = connection.cursor()
         candidates: List[Dict[str, Any]] = cursor.execute(
             """
-            SELECT id, item_type, category, title, description, contact_name, contact_phone,
-                   latitude, longitude, location_label, reward_note, created_at
-            FROM items
-            WHERE item_type = ?
-              AND category = ?
-              AND id != ?
-              AND created_at >= datetime('now', ?)
-            ORDER BY created_at DESC, id DESC
+            SELECT i.id, i.item_type, i.user_id, i.category, i.title, i.description,
+                   i.contact_name, i.contact_phone, i.latitude, i.longitude, i.location_label,
+                   i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
+            FROM items i
+            LEFT JOIN users u ON u.id = i.user_id
+            WHERE i.item_type = ?
+              AND i.category = ?
+              AND i.id != ?
+              AND i.created_at >= datetime('now', ?)
+            ORDER BY i.created_at DESC, i.id DESC
             """,
             (opposite_type, base_item["category"], item_id, f"-{day_window} day"),
         ).fetchall()
@@ -261,6 +319,7 @@ def item_to_dict(item: Dict[str, Any] | None) -> Dict[str, Any] | None:
     payload = {
         "id": item["id"],
         "item_type": item["item_type"],
+        "user_id": item.get("user_id"),
         "category": item["category"],
         "title": item["title"],
         "description": item["description"],
@@ -270,8 +329,102 @@ def item_to_dict(item: Dict[str, Any] | None) -> Dict[str, Any] | None:
         "longitude": float(item["longitude"]),
         "location_label": item["location_label"],
         "reward_note": item["reward_note"],
+        "image_filename": item.get("image_filename", ""),
+        "owner_email": item.get("owner_email"),
         "created_at": item["created_at"],
     }
     if "distance_km" in item:
         payload["distance_km"] = float(item["distance_km"])
     return payload
+
+
+def create_user(
+    db_path: str | None,
+    *,
+    name: str,
+    email: str,
+    password_hash: str,
+) -> int:
+    """Create a user account and return its ID."""
+    normalized_name = _clean_text(name, "name")
+    normalized_email = _clean_text(email, "email").lower()
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (name, email, password_hash)
+            VALUES (?, ?, ?)
+            """,
+            (normalized_name, normalized_email, password_hash),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def get_user_by_email(db_path: str | None, email: str) -> Dict[str, Any] | None:
+    """Fetch one user by email."""
+    normalized_email = email.strip().lower()
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT id, name, email, password_hash, created_at
+            FROM users
+            WHERE email = ?
+            """,
+            (normalized_email,),
+        ).fetchone()
+
+
+def get_user_by_id(db_path: str | None, user_id: int) -> Dict[str, Any] | None:
+    """Fetch one user by ID."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT id, name, email, session_token, password_hash, created_at
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+
+
+def set_user_session_token(
+    db_path: str | None,
+    *,
+    user_id: int,
+    session_token: str | None,
+) -> None:
+    """Update session token for a user."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE users
+            SET session_token = ?
+            WHERE id = ?
+            """,
+            (session_token, user_id),
+        )
+        connection.commit()
+
+
+def get_user_by_session_token(
+    db_path: str | None,
+    session_token: str,
+) -> Dict[str, Any] | None:
+    """Fetch one user by session token."""
+    token = session_token.strip()
+    if not token:
+        return None
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT id, name, email, session_token, password_hash, created_at
+            FROM users
+            WHERE session_token = ?
+            """,
+            (token,),
+        ).fetchone()

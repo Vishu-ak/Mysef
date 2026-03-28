@@ -19,6 +19,49 @@
     </header>
 
     <main class="layout">
+      <section class="card auth-card">
+        <div class="section-header">
+          <h2>Account</h2>
+          <span id="authStatus">Not logged in</span>
+        </div>
+        <div id="authForms">
+          <form id="registerForm" class="auth-form">
+            <h3>Create account</h3>
+            <label>
+              Name
+              <input name="name" type="text" required maxlength="120" />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" required maxlength="200" />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" required minlength="8" />
+            </label>
+            <button type="submit" class="primary-button">Register</button>
+          </form>
+
+          <form id="loginForm" class="auth-form">
+            <h3>Login</h3>
+            <label>
+              Email
+              <input name="email" type="email" required maxlength="200" />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" required minlength="8" />
+            </label>
+            <button type="submit" class="ghost-button">Login</button>
+          </form>
+        </div>
+        <div id="authActions" class="auth-actions hidden">
+          <p id="authUser"></p>
+          <button id="logoutBtn" type="button" class="ghost-button">Logout</button>
+        </div>
+        <p id="authMessage" class="status-message"></p>
+      </section>
+
       <section class="card form-card">
         <h2>Add Lost or Found Item</h2>
         <form id="itemForm">
@@ -84,6 +127,11 @@
               placeholder="City Mall Parking, Main Road"
               maxlength="200"
             />
+          </label>
+
+          <label>
+            Upload Item Image (optional)
+            <input name="item_image" id="itemImageInput" type="file" accept="image/*" />
           </label>
 
           <div class="grid three-col coords">
@@ -185,11 +233,14 @@
           <span class="item-badge"></span>
         </div>
         <p class="item-description"></p>
+        <img class="item-image hidden" alt="Reported item image" />
         <p class="item-contact"></p>
         <p class="item-location"></p>
         <div class="item-actions">
           <button class="ghost-button show-on-map-btn" type="button">Show on map</button>
           <button class="primary-button find-matches-btn" type="button">Find matches nearby</button>
+          <a class="ghost-button contact-whatsapp-btn" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+          <a class="ghost-button contact-email-btn" target="_blank" rel="noopener noreferrer">Email</a>
         </div>
         <div class="matches-container"></div>
       </article>
