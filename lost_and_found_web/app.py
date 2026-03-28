@@ -222,8 +222,8 @@ def create_app(db_path: str | None = None) -> Flask:
                 lon=float(payload["lon"]),
                 location_label=str(payload.get("location_label", "")).strip(),
                 reward_note=str(payload.get("reward_note", "")).strip(),
-                image_url=str(payload.get("image_url", "")).strip(),
-                created_by_user_id=int(user["id"]),
+                image_filename=str(payload.get("image_filename", "")).strip(),
+                user_id=int(user["id"]),
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

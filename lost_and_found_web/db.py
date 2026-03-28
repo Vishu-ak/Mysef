@@ -201,7 +201,7 @@ def get_item(db_path: str | None, item_id: int) -> Dict[str, Any] | None:
                    i.reward_note, i.image_filename, i.created_at, u.email AS owner_email
             FROM items i
             LEFT JOIN users u ON u.id = i.user_id
-            WHERE id = ?
+            WHERE i.id = ?
             """,
             (item_id,),
         ).fetchone()
@@ -330,6 +330,7 @@ def item_to_dict(item: Dict[str, Any] | None) -> Dict[str, Any] | None:
         "location_label": item["location_label"],
         "reward_note": item["reward_note"],
         "image_filename": item.get("image_filename", ""),
+        "image_url": f"/uploads/{item.get('image_filename', '')}" if item.get("image_filename", "") else "",
         "owner_email": item.get("owner_email"),
         "created_at": item["created_at"],
     }
