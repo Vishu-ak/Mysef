@@ -24,6 +24,22 @@
           <h2>Account</h2>
           <span id="authStatus">Not logged in</span>
         </div>
+        <div id="emailVerificationBanner" class="email-banner hidden">
+          <strong>Email not verified.</strong>
+          <p>Verify your email with OTP to enable trusted status and claim actions.</p>
+          <div class="email-banner-actions">
+            <button id="sendOtpBtn" type="button" class="ghost-button">Send OTP</button>
+            <input
+              id="otpInput"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="6"
+              placeholder="6-digit OTP"
+            />
+            <button id="verifyOtpBtn" type="button" class="primary-button">Verify</button>
+          </div>
+        </div>
         <button id="googleSignInBtn" type="button" class="google-signin-button hidden">
           Continue with Google
         </button>
@@ -224,6 +240,14 @@
         </div>
         <div id="itemsList" class="items-list"></div>
       </section>
+
+      <section class="card claims-card">
+        <div class="section-header">
+          <h2>My Claims</h2>
+          <button id="refreshClaimsBtn" type="button" class="ghost-button">Refresh Claims</button>
+        </div>
+        <div id="claimsList" class="items-list"></div>
+      </section>
     </main>
 
     <template id="itemCardTemplate">
@@ -239,9 +263,12 @@
         <img class="item-image hidden" alt="Reported item image" />
         <p class="item-contact"></p>
         <p class="item-location"></p>
+        <p class="item-status"></p>
         <div class="item-actions">
           <button class="ghost-button show-on-map-btn" type="button">Show on map</button>
           <button class="primary-button find-matches-btn" type="button">Find matches nearby</button>
+          <button class="primary-button request-claim-btn" type="button">Request claim</button>
+          <button class="ghost-button update-status-btn" type="button">Mark Returned</button>
           <a class="ghost-button contact-whatsapp-btn" target="_blank" rel="noopener noreferrer">WhatsApp</a>
           <a class="ghost-button contact-email-btn" target="_blank" rel="noopener noreferrer">Email</a>
         </div>

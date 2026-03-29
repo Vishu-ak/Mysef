@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -11,6 +13,8 @@ from .geo import haversine_km
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "data" / "lost_and_found.db"
+VALID_ITEM_STATUSES = {"open", "in_discussion", "claimed", "returned", "closed"}
+VALID_CLAIM_STATUSES = {"pending", "approved", "rejected", "cancelled"}
 
 
 def _dict_factory(cursor: sqlite3.Cursor, row: Iterable[Any]) -> Dict[str, Any]:
@@ -511,3 +515,219 @@ def get_user_by_session_token(
             """,
             (token,),
         ).fetchone()
+
+
+def create_otp_code(
+    db_path: str | None,
+    *,
+    user_id: int,
+    channel: str,
+    destination: str,
+    code: str,
+    expires_at: str,
+) -> int:
+    """Create OTP code row and return ID."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO otp_codes (user_id, channel, destination, code, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, channel, destination, code, expires_at),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def get_active_otp_code(
+    db_path: str | None,
+    *,
+    user_id: int,
+    channel: str,
+    destination: str,
+    code: str,
+) -> Dict[str, Any] | None:
+    """Return latest valid OTP row matching fields."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT id, user_id, channel, destination, code, expires_at, consumed_at, created_at
+            FROM otp_codes
+            WHERE user_id = ?
+              AND channel = ?
+              AND destination = ?
+              AND code = ?
+              AND consumed_at IS NULL
+              AND expires_at > datetime('now')
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, channel, destination, code),
+        ).fetchone()
+
+
+def consume_otp_code(db_path: str | None, *, otp_id: int) -> None:
+    """Mark OTP as consumed."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE otp_codes
+            SET consumed_at = datetime('now')
+            WHERE id = ?
+            """,
+            (otp_id,),
+        )
+        connection.commit()
+
+
+def verify_user_contact(
+    db_path: str | None,
+    *,
+    user_id: int,
+    channel: str,
+    value: str,
+) -> None:
+    """Mark user contact channel as verified."""
+    if channel not in {"email", "phone"}:
+        raise ValueError("channel must be email or phone")
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        if channel == "email":
+            cursor.execute(
+                """
+                UPDATE users
+                SET email_verified = 1
+                WHERE id = ?
+                """,
+                (user_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE users
+                SET phone = ?, phone_verified = 1
+                WHERE id = ?
+                """,
+                (value.strip(), user_id),
+            )
+        connection.commit()
+
+
+def create_claim(
+    db_path: str | None,
+    *,
+    item_id: int,
+    claimant_user_id: int,
+    message: str,
+) -> int:
+    """Create a claim request and return claim ID."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO claims (item_id, claimant_user_id, status, message)
+            VALUES (?, ?, 'pending', ?)
+            """,
+            (item_id, claimant_user_id, message.strip()),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def list_claims_for_item(db_path: str | None, *, item_id: int) -> List[Dict[str, Any]]:
+    """List claims for an item."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        rows = cursor.execute(
+            """
+            SELECT c.id, c.item_id, c.claimant_user_id, c.status, c.message, c.created_at, c.updated_at,
+                   u.name AS claimant_name, u.email AS claimant_email
+            FROM claims c
+            LEFT JOIN users u ON u.id = c.claimant_user_id
+            WHERE c.item_id = ?
+            ORDER BY c.created_at DESC, c.id DESC
+            """,
+            (item_id,),
+        ).fetchall()
+    return rows
+
+
+def get_claim(db_path: str | None, *, claim_id: int) -> Dict[str, Any] | None:
+    """Get a claim by ID."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        return cursor.execute(
+            """
+            SELECT c.id, c.item_id, c.claimant_user_id, c.status, c.message, c.created_at, c.updated_at,
+                   u.name AS claimant_name, u.email AS claimant_email
+            FROM claims c
+            LEFT JOIN users u ON u.id = c.claimant_user_id
+            WHERE c.id = ?
+            """,
+            (claim_id,),
+        ).fetchone()
+
+
+def update_claim_status(
+    db_path: str | None,
+    *,
+    claim_id: int,
+    status: str,
+) -> None:
+    """Update claim status."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE claims
+            SET status = ?, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (status, claim_id),
+        )
+        connection.commit()
+
+
+def update_item_status(
+    db_path: str | None,
+    *,
+    item_id: int,
+    status: str,
+) -> None:
+    """Update item status."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE items
+            SET status = ?
+            WHERE id = ?
+            """,
+            (status, item_id),
+        )
+        connection.commit()
+
+
+def list_user_email_notification_targets(
+    db_path: str | None,
+    *,
+    item_id: int,
+) -> List[str]:
+    """Return user emails to notify for an item match event."""
+    with get_connection(db_path) as connection:
+        cursor = connection.cursor()
+        rows = cursor.execute(
+            """
+            SELECT DISTINCT u.email
+            FROM items i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.id = ?
+              AND u.email_verified = 1
+              AND u.notify_email = 1
+            """,
+            (item_id,),
+        ).fetchall()
+    return [str(row["email"]) for row in rows if row.get("email")]

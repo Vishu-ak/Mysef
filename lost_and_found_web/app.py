@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
+import time
 import uuid
+from collections import defaultdict, deque
+from datetime import datetime
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
@@ -16,15 +21,29 @@ from .db import (
     create_item,
     create_user,
     get_all_items,
+    get_claim,
+    get_claim_for_item_and_claimer,
     get_item,
     get_matches_for_item,
+    get_item_watchers_for_match,
+    get_user_by_id,
     get_user_by_email,
     get_user_by_oauth_sub,
     get_user_by_session_token,
     init_db,
+    list_claims_for_item,
+    list_owned_items,
+    list_user_watchers,
     link_user_oauth,
     item_to_dict,
+    mark_watcher_notified,
+    request_claim,
+    resolve_claim,
+    save_auth_otp,
+    subscribe_watcher,
     set_user_session_token,
+    update_item_status,
+    verify_auth_otp,
 )
 from .storage import build_storage_backend
 
@@ -66,10 +85,26 @@ def create_app(db_path: str | None = None) -> Flask:
     )
     app.config["BACKEND_PUBLIC_URL"] = _resolve_base_url()
     app.config["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    app.config["AUTH_OTP_REQUIRED"] = os.getenv("AUTH_OTP_REQUIRED", "true").strip().lower() in {"1", "true", "yes"}
+    app.config["OTP_TTL_MINUTES"] = int(os.getenv("OTP_TTL_MINUTES", "10"))
+    app.config["OTP_MAX_ATTEMPTS"] = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+    app.config["RATE_LIMIT_WINDOW_SECONDS"] = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+    app.config["RATE_LIMIT_AUTH_REQUESTS"] = int(os.getenv("RATE_LIMIT_AUTH_REQUESTS", "20"))
+    app.config["RATE_LIMIT_ITEM_POSTS"] = int(os.getenv("RATE_LIMIT_ITEM_POSTS", "12"))
+    app.config["SMTP_HOST"] = os.getenv("SMTP_HOST", "").strip()
+    app.config["SMTP_PORT"] = int(os.getenv("SMTP_PORT", "587"))
+    app.config["SMTP_USER"] = os.getenv("SMTP_USER", "").strip()
+    app.config["SMTP_PASSWORD"] = os.getenv("SMTP_PASSWORD", "").strip()
+    app.config["SMTP_FROM_EMAIL"] = os.getenv("SMTP_FROM_EMAIL", "").strip() or app.config["SMTP_USER"]
+    app.config["SMTP_USE_TLS"] = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes"}
+    app.config["EMAIL_NOTIFICATIONS_ENABLED"] = (
+        os.getenv("EMAIL_NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
+    )
 
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
     init_db(app.config["DB_PATH"])
     storage_backend = build_storage_backend()
+    rate_buckets: dict[str, deque[float]] = defaultdict(deque)
 
     def _current_user() -> dict[str, Any] | None:
         token = _extract_auth_token()
@@ -95,6 +130,108 @@ def create_app(db_path: str | None = None) -> Flask:
         )
         response.set_cookie("session_token", session_token, httponly=True, samesite="Lax")
         return response
+
+    def _client_ip() -> str:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return request.remote_addr or "unknown"
+
+    def _rate_limit_or_429(*, bucket: str, limit: int) -> Any | None:
+        now = time.time()
+        window = float(app.config["RATE_LIMIT_WINDOW_SECONDS"])
+        queue = rate_buckets[bucket]
+        while queue and now - queue[0] > window:
+            queue.popleft()
+        if len(queue) >= limit:
+            return jsonify({"error": "Too many requests. Please try again later."}), 429
+        queue.append(now)
+        return None
+
+    def _send_email(*, to_email: str, subject: str, body: str) -> None:
+        if not app.config["EMAIL_NOTIFICATIONS_ENABLED"]:
+            return
+        host = app.config["SMTP_HOST"]
+        from_email = app.config["SMTP_FROM_EMAIL"]
+        if not host or not from_email:
+            print(f"[Email disabled] To={to_email} Subject={subject} Body={body}")
+            return
+        msg = EmailMessage()
+        msg["From"] = from_email
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        import smtplib
+
+        with smtplib.SMTP(host, app.config["SMTP_PORT"]) as server:
+            if app.config["SMTP_USE_TLS"]:
+                server.starttls()
+            if app.config["SMTP_USER"] and app.config["SMTP_PASSWORD"]:
+                server.login(app.config["SMTP_USER"], app.config["SMTP_PASSWORD"])
+            server.send_message(msg)
+
+    def _otp_required_response(user_id: int, email: str) -> Any:
+        otp_code = f"{secrets.randbelow(1_000_000):06d}"
+        save_auth_otp(
+            app.config["DB_PATH"],
+            user_id=user_id,
+            code=otp_code,
+            ttl_minutes=app.config["OTP_TTL_MINUTES"],
+            max_attempts=app.config["OTP_MAX_ATTEMPTS"],
+        )
+        _send_email(
+            to_email=email,
+            subject="Your Lost & Found login verification code",
+            body=(
+                f"Your OTP code is: {otp_code}\n\n"
+                f"It expires in {app.config['OTP_TTL_MINUTES']} minutes.\n"
+                "If you did not request this code, ignore this email."
+            ),
+        )
+        response = jsonify(
+            {
+                "otp_required": True,
+                "user_id": user_id,
+                "message": "OTP sent to your email.",
+            }
+        )
+        response.delete_cookie("session_token")
+        return response
+
+    def _score_match(base_item: dict[str, Any], candidate: dict[str, Any]) -> float:
+        distance = float(candidate.get("distance_km", 9999.0))
+        distance_score = max(0.0, 1.0 - min(distance, 20.0) / 20.0)
+        base_text = f"{base_item.get('title', '')} {base_item.get('description', '')}".lower()
+        cand_text = f"{candidate.get('title', '')} {candidate.get('description', '')}".lower()
+        base_tokens = {tok for tok in base_text.replace(",", " ").split() if len(tok) >= 3}
+        cand_tokens = {tok for tok in cand_text.replace(",", " ").split() if len(tok) >= 3}
+        overlap = len(base_tokens & cand_tokens)
+        text_score = min(1.0, overlap / 4.0)
+        return round((0.65 * distance_score + 0.35 * text_score) * 100.0, 2)
+
+    def _notify_watchers_for_new_item(new_item: dict[str, Any]) -> None:
+        watchers = get_item_watchers_for_match(app.config["DB_PATH"], new_item)
+        for watcher in watchers:
+            watcher_email = str(watcher.get("watcher_email", "")).strip()
+            if not watcher_email:
+                continue
+            _send_email(
+                to_email=watcher_email,
+                subject=f"Potential match found: {new_item['title']}",
+                body=(
+                    "A potential item match was found near your watch location.\n\n"
+                    f"New report: {new_item['title']} ({new_item['item_type']})\n"
+                    f"Category: {new_item['category']}\n"
+                    f"Distance: {watcher.get('distance_km', 'n/a')} km\n"
+                    f"Contact: {new_item['contact_name']} ({new_item['contact_phone']})\n"
+                ),
+            )
+            mark_watcher_notified(
+                app.config["DB_PATH"],
+                watcher_id=int(watcher["watcher_id"]),
+                matched_item_id=int(new_item["id"]),
+            )
 
     def _verify_google_token(token: str) -> dict[str, Any]:
         if not google_id_token or not GoogleAuthRequest:
@@ -138,6 +275,12 @@ def create_app(db_path: str | None = None) -> Flask:
 
     @app.post("/api/auth/register")
     def register() -> Any:
+        limited = _rate_limit_or_429(
+            bucket=f"auth-register:{_client_ip()}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
         payload = request.get_json(silent=True) or {}
         name = str(payload.get("name", "")).strip()
         email = str(payload.get("email", "")).strip().lower()
@@ -156,20 +299,39 @@ def create_app(db_path: str | None = None) -> Flask:
             email=email,
             password_hash=generate_password_hash(password),
         )
+        if app.config["AUTH_OTP_REQUIRED"]:
+            return _otp_required_response(user_id, email), 201
         return _auth_success_response(user_id, name, email), 201
 
     @app.post("/api/auth/login")
     def login() -> Any:
+        limited = _rate_limit_or_429(
+            bucket=f"auth-login:{_client_ip()}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
         payload = request.get_json(silent=True) or {}
         email = str(payload.get("email", "")).strip().lower()
         password = str(payload.get("password", ""))
         user = get_user_by_email(app.config["DB_PATH"], email)
         if not user or not check_password_hash(user["password_hash"], password):
             return jsonify({"error": "invalid credentials"}), 401
+        if app.config["AUTH_OTP_REQUIRED"]:
+            return _otp_required_response(
+                int(user["id"]),
+                str(user["email"]),
+            )
         return _auth_success_response(int(user["id"]), str(user["name"]), str(user["email"]))
 
     @app.post("/api/auth/google")
     def google_login() -> Any:
+        limited = _rate_limit_or_429(
+            bucket=f"auth-google:{_client_ip()}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
         payload = request.get_json(silent=True) or {}
         credential = str(payload.get("credential", "")).strip()
         if not credential:
@@ -214,7 +376,42 @@ def create_app(db_path: str | None = None) -> Flask:
                     oauth_sub=oauth_sub,
                 )
 
+        if app.config["AUTH_OTP_REQUIRED"]:
+            return _otp_required_response(user_id, email)
         return _auth_success_response(user_id, name, email)
+
+    @app.post("/api/auth/verify-otp")
+    def verify_otp() -> Any:
+        limited = _rate_limit_or_429(
+            bucket=f"auth-otp:{_client_ip()}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
+        payload = request.get_json(silent=True) or {}
+        user_id_raw = payload.get("user_id")
+        code = str(payload.get("code", "")).strip()
+        try:
+            user_id = int(user_id_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "valid user_id is required"}), 400
+        if not code:
+            return jsonify({"error": "OTP code is required"}), 400
+        ok, reason = verify_auth_otp(
+            app.config["DB_PATH"],
+            user_id=user_id,
+            code=code,
+        )
+        if not ok:
+            return jsonify({"error": reason}), 400
+        user = get_user_by_id(app.config["DB_PATH"], user_id)
+        if not user:
+            return jsonify({"error": "user not found"}), 404
+        return _auth_success_response(
+            user_id,
+            str(user["name"]),
+            str(user["email"]),
+        )
 
     @app.get("/api/auth/google/start")
     def google_start() -> Any:
@@ -304,6 +501,12 @@ def create_app(db_path: str | None = None) -> Flask:
 
     @app.post("/api/items")
     def add_item() -> Any:
+        limited = _rate_limit_or_429(
+            bucket=f"item-create:{_client_ip()}:{_extract_auth_token() or ''}",
+            limit=app.config["RATE_LIMIT_ITEM_POSTS"],
+        )
+        if limited:
+            return limited
         user = _current_user()
         if not user:
             return jsonify({"error": "login required"}), 401
@@ -355,7 +558,10 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify({"error": "Invalid payload for item creation"}), 400
 
         new_item = get_item(app.config["DB_PATH"], created_id)
-        return jsonify({"item": item_to_dict(new_item)}), 201
+        item_payload = item_to_dict(new_item)
+        if item_payload:
+            _notify_watchers_for_new_item(item_payload)
+        return jsonify({"item": item_payload}), 201
 
     @app.get("/api/items/<int:item_id>/matches")
     def get_matches(item_id: int) -> Any:
@@ -378,12 +584,146 @@ def create_app(db_path: str | None = None) -> Flask:
             distance_limit_km=distance_limit_km,
             time_limit_days=time_limit_days,
         )
+        scored_matches = []
+        for match in matches:
+            serialized = item_to_dict(match)
+            if not serialized:
+                continue
+            serialized["score"] = _score_match(item_to_dict(item) or {}, serialized)
+            scored_matches.append(serialized)
+        scored_matches.sort(key=lambda row: row.get("score", 0.0), reverse=True)
         return jsonify(
             {
                 "item": item_to_dict(item),
-                "matches": [item_to_dict(match) for match in matches],
+                "matches": scored_matches,
             }
         )
+
+    @app.post("/api/watchers")
+    def create_watcher() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        category = str(payload.get("category", "")).strip().lower()
+        item_type = str(payload.get("item_type", "")).strip().lower()
+        try:
+            latitude = float(payload.get("lat"))
+            longitude = float(payload.get("lon"))
+            radius_km = float(payload.get("radius_km", 10))
+        except (TypeError, ValueError):
+            return jsonify({"error": "lat, lon, radius_km must be numeric"}), 400
+        if item_type not in {"lost", "found"}:
+            return jsonify({"error": "item_type must be 'lost' or 'found'"}), 400
+        if not category:
+            return jsonify({"error": "category is required"}), 400
+        watcher_id = subscribe_watcher(
+            app.config["DB_PATH"],
+            user_id=int(user["id"]),
+            item_type=item_type,
+            category=category,
+            latitude=latitude,
+            longitude=longitude,
+            radius_km=radius_km,
+        )
+        return jsonify({"watcher_id": watcher_id}), 201
+
+    @app.get("/api/watchers")
+    def get_watchers() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        watchers = list_user_watchers(app.config["DB_PATH"], user_id=int(user["id"]))
+        return jsonify({"watchers": watchers})
+
+    @app.get("/api/my-items")
+    def get_my_items() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        items = list_owned_items(app.config["DB_PATH"], owner_user_id=int(user["id"]))
+        return jsonify({"items": [item_to_dict(row) for row in items]})
+
+    @app.patch("/api/items/<int:item_id>/status")
+    def patch_item_status(item_id: int) -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        status = str(payload.get("status", "")).strip().lower()
+        if status not in {"open", "in_discussion", "claimed", "returned", "closed"}:
+            return jsonify({"error": "invalid status"}), 400
+        note = str(payload.get("note", "")).strip()
+        updated = update_item_status(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            owner_user_id=int(user["id"]),
+            status=status,
+            note=note,
+        )
+        if not updated:
+            return jsonify({"error": "item not found or not owned by user"}), 404
+        return jsonify({"item": item_to_dict(updated)})
+
+    @app.post("/api/items/<int:item_id>/claims")
+    def create_claim(item_id: int) -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        message = str(payload.get("message", "")).strip()
+        proof_answer = str(payload.get("proof_answer", "")).strip()
+        if not message or not proof_answer:
+            return jsonify({"error": "message and proof_answer are required"}), 400
+        existing = get_claim_for_item_and_claimer(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            claimer_user_id=int(user["id"]),
+        )
+        if existing:
+            return jsonify({"error": "claim already exists for this item"}), 409
+        claim_id = request_claim(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            claimer_user_id=int(user["id"]),
+            message=message,
+            proof_answer=proof_answer,
+        )
+        claim = get_claim(app.config["DB_PATH"], claim_id)
+        return jsonify({"claim": claim}), 201
+
+    @app.get("/api/items/<int:item_id>/claims")
+    def get_claims(item_id: int) -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        claims = list_claims_for_item(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            owner_user_id=int(user["id"]),
+        )
+        return jsonify({"claims": claims})
+
+    @app.patch("/api/claims/<int:claim_id>")
+    def patch_claim(claim_id: int) -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        status = str(payload.get("status", "")).strip().lower()
+        if status not in {"approved", "rejected"}:
+            return jsonify({"error": "status must be approved or rejected"}), 400
+        resolution_note = str(payload.get("resolution_note", "")).strip()
+        updated = resolve_claim(
+            app.config["DB_PATH"],
+            claim_id=claim_id,
+            owner_user_id=int(user["id"]),
+            status=status,
+            resolution_note=resolution_note,
+        )
+        if not updated:
+            return jsonify({"error": "claim not found or not authorized"}), 404
+        return jsonify({"claim": updated})
 
     return app
 

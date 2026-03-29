@@ -17,6 +17,12 @@ A standalone Flask website for reporting lost and found items (like **e-scooters
 - **Quick contact actions**
   - WhatsApp chat button (`wa.me`)
   - Email button (`mailto`) if owner email is available
+- **Security and recovery workflow**
+  - OTP verification over email for local account signup
+  - API rate limiting on auth and posting endpoints
+  - claim request + accept/reject workflow with item status transitions
+  - match confidence scoring
+  - email notifications for verification, matches, claims, and status changes
 - **Deploy support**
   - Render config (`render.yaml`)
   - Railway-friendly `Procfile`
@@ -85,6 +91,11 @@ Supported variables:
 - `STORAGE_PROVIDER` - `local` (default), `cloudinary`, or `s3`
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER` (Cloudinary mode)
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET_NAME`, `S3_KEY_PREFIX` (S3 mode)
+- `OTP_EXPIRY_MINUTES` - OTP validity window for register verification (default: 10)
+- `RATE_LIMIT_WINDOW_SECONDS` - rate-limit window duration (default: 60)
+- `RATE_LIMIT_AUTH_REQUESTS` - max auth requests per window per IP (default: 20)
+- `RATE_LIMIT_POST_REQUESTS` - max post requests per window per IP (default: 30)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM` - SMTP delivery configuration
 
 ## API endpoints
 
@@ -92,6 +103,9 @@ Supported variables:
 
 - `POST /api/auth/register`
   - JSON: `name`, `email`, `password`
+  - sends OTP to email (or logs OTP if SMTP not configured)
+- `POST /api/auth/verify-register-otp`
+  - JSON: `otp_token`, `otp_code`
 - `POST /api/auth/login`
   - JSON: `email`, `password`
 - `POST /api/auth/google`
@@ -125,8 +139,15 @@ Supported variables:
     - `image_filename` (optional, returned by `/api/uploads`)
     - `image_url` (optional, returned by `/api/uploads`)
   - requires authenticated session
+- `GET /api/my/items`
+  - list current user items including ownership status
+- `POST /api/items/<item_id>/claim`
+  - create claim request as non-owner
+- `POST /api/claims/<claim_id>/decision`
+  - owner accepts/rejects claim
 - `GET /api/items/<item_id>/matches`
   - Query params (optional): `distance_km` (default 8), `time_days` (default 14)
+  - returns `score` confidence for each match
 
 ## Deploy options
 
@@ -179,4 +200,5 @@ Keep `STORAGE_PROVIDER=local` for development.
 
 - Data is stored in `lost_and_found_web/data/lost_and_found.db` by default.
 - Uploaded images are stored in `lost_and_found_web/uploads/`.
+- Without SMTP configuration, email notifications are logged to stdout so development still works.
 - This app is intentionally isolated from the existing coding-showcase modules in this repository.
