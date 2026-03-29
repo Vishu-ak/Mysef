@@ -8,7 +8,7 @@ import sqlite3
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -23,6 +23,9 @@ from .db import (
     get_all_items,
     get_claim,
     get_claim_for_item_and_claimer,
+    create_otp_code,
+    get_active_otp_code,
+    consume_otp_code,
     get_item,
     get_matches_for_item,
     get_item_watchers_for_match,
@@ -32,6 +35,7 @@ from .db import (
     get_user_by_session_token,
     init_db,
     list_claims_for_item,
+    list_claims_for_user,
     list_owned_items,
     list_user_watchers,
     link_user_oauth,
@@ -43,6 +47,7 @@ from .db import (
     subscribe_watcher,
     set_user_session_token,
     update_item_status,
+    verify_user_contact,
     verify_auth_otp,
 )
 from .storage import build_storage_backend
@@ -211,7 +216,10 @@ def create_app(db_path: str | None = None) -> Flask:
         return round((0.65 * distance_score + 0.35 * text_score) * 100.0, 2)
 
     def _notify_watchers_for_new_item(new_item: dict[str, Any]) -> None:
-        watchers = get_item_watchers_for_match(app.config["DB_PATH"], new_item)
+        watchers = get_item_watchers_for_match(
+            app.config["DB_PATH"],
+            int(new_item["id"]),
+        )
         for watcher in watchers:
             watcher_email = str(watcher.get("watcher_email", "")).strip()
             if not watcher_email:
@@ -407,10 +415,98 @@ def create_app(db_path: str | None = None) -> Flask:
         user = get_user_by_id(app.config["DB_PATH"], user_id)
         if not user:
             return jsonify({"error": "user not found"}), 404
+        verify_user_contact(
+            app.config["DB_PATH"],
+            user_id=user_id,
+            channel="email",
+            value=str(user.get("email", "")),
+        )
         return _auth_success_response(
             user_id,
             str(user["name"]),
             str(user["email"]),
+        )
+
+    @app.post("/api/auth/email/request-otp")
+    def request_email_otp() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        limited = _rate_limit_or_429(
+            bucket=f"auth-email-otp:{_client_ip()}:{int(user['id'])}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
+        email = str(user["email"]).strip().lower()
+        otp_code = f"{secrets.randbelow(1_000_000):06d}"
+        expires_at = (
+            datetime.utcnow() + timedelta(minutes=app.config["OTP_TTL_MINUTES"])
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        create_otp_code(
+            app.config["DB_PATH"],
+            user_id=int(user["id"]),
+            channel="email",
+            destination=email,
+            code=otp_code,
+            expires_at=expires_at,
+        )
+        _send_email(
+            to_email=email,
+            subject="Your Lost & Found email verification code",
+            body=(
+                f"Your verification OTP is: {otp_code}\n\n"
+                f"It expires in {app.config['OTP_TTL_MINUTES']} minutes."
+            ),
+        )
+        response_payload: dict[str, Any] = {"message": "OTP sent to your email."}
+        # convenient for local/dev smoke tests
+        if os.getenv("ENV", "").strip().lower() != "production":
+            response_payload["dev_otp"] = otp_code
+        return jsonify(response_payload)
+
+    @app.post("/api/auth/email/verify-otp")
+    def verify_email_otp() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        limited = _rate_limit_or_429(
+            bucket=f"auth-email-verify:{_client_ip()}:{int(user['id'])}",
+            limit=app.config["RATE_LIMIT_AUTH_REQUESTS"],
+        )
+        if limited:
+            return limited
+        payload = request.get_json(silent=True) or {}
+        otp_code = str(payload.get("otp_code", "")).strip()
+        if not otp_code:
+            return jsonify({"error": "otp_code is required"}), 400
+        active = get_active_otp_code(
+            app.config["DB_PATH"],
+            user_id=int(user["id"]),
+            channel="email",
+            destination=str(user["email"]).strip().lower(),
+            code=otp_code,
+        )
+        if not active:
+            return jsonify({"error": "invalid or expired OTP"}), 400
+        consume_otp_code(app.config["DB_PATH"], otp_id=int(active["id"]))
+        verify_user_contact(
+            app.config["DB_PATH"],
+            user_id=int(user["id"]),
+            channel="email",
+            value=str(user["email"]),
+        )
+        updated_user = get_user_by_id(app.config["DB_PATH"], int(user["id"]))
+        return jsonify(
+            {
+                "message": "Email verified successfully.",
+                "user": {
+                    "id": updated_user["id"],
+                    "name": updated_user["name"],
+                    "email": updated_user["email"],
+                    "email_verified": bool(updated_user.get("email_verified", 0)),
+                },
+            }
         )
 
     @app.get("/api/auth/google/start")
@@ -589,9 +685,9 @@ def create_app(db_path: str | None = None) -> Flask:
             serialized = item_to_dict(match)
             if not serialized:
                 continue
-            serialized["score"] = _score_match(item_to_dict(item) or {}, serialized)
+            serialized["match_score"] = _score_match(item_to_dict(item) or {}, serialized)
             scored_matches.append(serialized)
-        scored_matches.sort(key=lambda row: row.get("score", 0.0), reverse=True)
+        scored_matches.sort(key=lambda row: row.get("match_score", 0.0), reverse=True)
         return jsonify(
             {
                 "item": item_to_dict(item),
@@ -644,7 +740,7 @@ def create_app(db_path: str | None = None) -> Flask:
         items = list_owned_items(app.config["DB_PATH"], owner_user_id=int(user["id"]))
         return jsonify({"items": [item_to_dict(row) for row in items]})
 
-    @app.patch("/api/items/<int:item_id>/status")
+    @app.post("/api/items/<int:item_id>/status")
     def patch_item_status(item_id: int) -> Any:
         user = _current_user()
         if not user:
@@ -670,6 +766,12 @@ def create_app(db_path: str | None = None) -> Flask:
         user = _current_user()
         if not user:
             return jsonify({"error": "login required"}), 401
+        limited = _rate_limit_or_429(
+            bucket=f"claim-create:{_client_ip()}:{int(user['id'])}",
+            limit=app.config["RATE_LIMIT_ITEM_POSTS"],
+        )
+        if limited:
+            return limited
         payload = request.get_json(silent=True) or {}
         message = str(payload.get("message", "")).strip()
         proof_answer = str(payload.get("proof_answer", "")).strip()
@@ -678,7 +780,7 @@ def create_app(db_path: str | None = None) -> Flask:
         existing = get_claim_for_item_and_claimer(
             app.config["DB_PATH"],
             item_id=item_id,
-            claimer_user_id=int(user["id"]),
+            claimant_user_id=int(user["id"]),
         )
         if existing:
             return jsonify({"error": "claim already exists for this item"}), 409
@@ -689,7 +791,7 @@ def create_app(db_path: str | None = None) -> Flask:
             message=message,
             proof_answer=proof_answer,
         )
-        claim = get_claim(app.config["DB_PATH"], claim_id)
+        claim = get_claim(app.config["DB_PATH"], claim_id=claim_id)
         return jsonify({"claim": claim}), 201
 
     @app.get("/api/items/<int:item_id>/claims")
@@ -703,6 +805,62 @@ def create_app(db_path: str | None = None) -> Flask:
             owner_user_id=int(user["id"]),
         )
         return jsonify({"claims": claims})
+
+    @app.post("/api/claims")
+    def create_claim_from_panel() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        try:
+            item_id = int(payload.get("item_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "valid item_id is required"}), 400
+        message = str(payload.get("request_message", "")).strip()
+        if not message:
+            return jsonify({"error": "request_message is required"}), 400
+        existing = get_claim_for_item_and_claimer(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            claimant_user_id=int(user["id"]),
+        )
+        if existing:
+            return jsonify({"error": "claim already exists for this item"}), 409
+        claim_id = request_claim(
+            app.config["DB_PATH"],
+            item_id=item_id,
+            claimer_user_id=int(user["id"]),
+            message=message,
+            proof_answer="submitted-via-panel",
+        )
+        return jsonify({"claim": get_claim(app.config["DB_PATH"], claim_id=claim_id)}), 201
+
+    @app.get("/api/claims/mine")
+    def get_my_claims() -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        claims = list_claims_for_user(app.config["DB_PATH"], claimer_user_id=int(user["id"]))
+        return jsonify({"claims": claims})
+
+    @app.post("/api/claims/<int:claim_id>/decision")
+    def decision_claim(claim_id: int) -> Any:
+        user = _current_user()
+        if not user:
+            return jsonify({"error": "login required"}), 401
+        payload = request.get_json(silent=True) or {}
+        approve = bool(payload.get("approve"))
+        status = "approved" if approve else "rejected"
+        updated = resolve_claim(
+            app.config["DB_PATH"],
+            claim_id=claim_id,
+            owner_user_id=int(user["id"]),
+            status=status,
+            resolution_note="",
+        )
+        if not updated:
+            return jsonify({"error": "claim not found or not authorized"}), 404
+        return jsonify({"claim": updated})
 
     @app.patch("/api/claims/<int:claim_id>")
     def patch_claim(claim_id: int) -> Any:

@@ -28,16 +28,16 @@
           <strong>Email not verified.</strong>
           <p>Verify your email with OTP to enable trusted status and claim actions.</p>
           <div class="email-banner-actions">
-            <button id="sendOtpBtn" type="button" class="ghost-button">Send OTP</button>
+            <button id="requestEmailOtpBtn" type="button" class="ghost-button">Send OTP</button>
             <input
-              id="otpInput"
+              id="emailOtpInput"
               type="text"
               inputmode="numeric"
               pattern="[0-9]*"
               maxlength="6"
               placeholder="6-digit OTP"
             />
-            <button id="verifyOtpBtn" type="button" class="primary-button">Verify</button>
+            <button id="verifyEmailOtpBtn" type="button" class="primary-button">Verify</button>
           </div>
         </div>
         <button id="googleSignInBtn" type="button" class="google-signin-button hidden">
@@ -152,6 +152,7 @@
             Upload Item Image (optional)
             <input name="item_image" id="itemImageInput" type="file" accept="image/*" />
           </label>
+          <img id="itemImagePreview" class="item-image hidden" alt="Image preview" />
 
           <div class="grid three-col coords">
             <label>
@@ -246,7 +247,19 @@
           <h2>My Claims</h2>
           <button id="refreshClaimsBtn" type="button" class="ghost-button">Refresh Claims</button>
         </div>
-        <div id="claimsList" class="items-list"></div>
+        <div class="grid two-col">
+          <label>
+            Item ID
+            <input id="claimItemIdInput" type="number" min="1" placeholder="e.g. 12" />
+          </label>
+          <label>
+            Claim note
+            <input id="claimMessageInput" type="text" maxlength="300" placeholder="Why this item is yours" />
+          </label>
+        </div>
+        <button id="submitClaimBtn" type="button" class="primary-button">Submit Claim</button>
+        <p id="claimMessage" class="status-message"></p>
+        <div id="myClaimsList" class="items-list"></div>
       </section>
     </main>
 
@@ -267,11 +280,12 @@
         <div class="item-actions">
           <button class="ghost-button show-on-map-btn" type="button">Show on map</button>
           <button class="primary-button find-matches-btn" type="button">Find matches nearby</button>
-          <button class="primary-button request-claim-btn" type="button">Request claim</button>
-          <button class="ghost-button update-status-btn" type="button">Mark Returned</button>
+          <button class="primary-button close-item-btn hidden" type="button">Close Item</button>
+          <button class="ghost-button reopen-item-btn hidden" type="button">Reopen Item</button>
           <a class="ghost-button contact-whatsapp-btn" target="_blank" rel="noopener noreferrer">WhatsApp</a>
           <a class="ghost-button contact-email-btn" target="_blank" rel="noopener noreferrer">Email</a>
         </div>
+        <p class="match-score"></p>
         <div class="matches-container"></div>
       </article>
     </template>

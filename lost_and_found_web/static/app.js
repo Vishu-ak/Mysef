@@ -18,9 +18,9 @@ const authMessage = document.getElementById("authMessage");
 const logoutBtn = document.getElementById("logoutBtn");
 const googleSignInBtn = document.getElementById("googleSignInBtn");
 
-const requestEmailOtpBtn = document.getElementById("requestEmailOtpBtn");
-const verifyEmailOtpBtn = document.getElementById("verifyEmailOtpBtn");
-const emailOtpInput = document.getElementById("emailOtpInput");
+const requestEmailOtpBtn = document.getElementById("sendOtpBtn");
+const verifyEmailOtpBtn = document.getElementById("verifyOtpBtn");
+const emailOtpInput = document.getElementById("otpInput");
 const emailVerifyStatus = document.getElementById("emailVerifyStatus");
 
 const form = document.getElementById("itemForm");
@@ -29,7 +29,7 @@ const latitudeInput = document.getElementById("latitudeInput");
 const longitudeInput = document.getElementById("longitudeInput");
 const useMyLocationBtn = document.getElementById("useMyLocationBtn");
 const itemImageInput = document.getElementById("itemImageInput");
-const itemImagePreview = document.getElementById("itemImagePreview");
+const itemImagePreview = document.getElementById("imagePreview");
 
 const filterType = document.getElementById("filterType");
 const filterCategory = document.getElementById("filterCategory");
@@ -44,11 +44,8 @@ const itemsList = document.getElementById("itemsList");
 const itemCount = document.getElementById("itemCount");
 const itemCardTemplate = document.getElementById("itemCardTemplate");
 
-const claimItemIdInput = document.getElementById("claimItemIdInput");
-const claimMessageInput = document.getElementById("claimMessageInput");
-const submitClaimBtn = document.getElementById("submitClaimBtn");
-const claimMessage = document.getElementById("claimMessage");
-const myClaimsList = document.getElementById("myClaimsList");
+const claimsList = document.getElementById("claimsList");
+const refreshClaimsBtn = document.getElementById("refreshClaimsBtn");
 
 let draftPin = null;
 let selectedPoint = null;
@@ -58,6 +55,7 @@ let sessionToken = localStorage.getItem("lostfound_session_token") || "";
 let currentUser = null;
 let appConfig = { google_client_id: "", storage_backend: "" };
 let latestItems = [];
+let pendingOtpUserId = null;
 
 function escapeHtml(value) {
   return String(value)
