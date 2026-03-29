@@ -19,3 +19,6 @@ htmlcov/
 .venv/
 env/
 venv/
+lost_and_found_web/data/*.db
+lost_and_found_web/uploads/*
+!lost_and_found_web/uploads/.gitkeep

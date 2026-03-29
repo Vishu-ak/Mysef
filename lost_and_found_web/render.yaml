@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: lost-and-found-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./scripts/start.sh
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: FLASK_ENV
+        value: production
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: BACKEND_PUBLIC_URL
+        value: https://lost-and-found-web.onrender.com

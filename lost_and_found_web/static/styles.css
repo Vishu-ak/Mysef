@@ -1,0 +1,556 @@
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #dbe2ea;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #166534;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a {
+  color: inherit;
+}
+
+.header {
+  background: #0f172a;
+  color: #ffffff;
+  padding: 1rem 1.2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.header p {
+  margin: 0.4rem 0 0;
+  color: #cbd5e1;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 430px) 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  min-height: calc(100vh - 88px);
+}
+
+.auth-card {
+  grid-column: 1;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.form-card,
+.filter-card,
+.list-card {
+  grid-column: 1;
+}
+
+.map-card {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+.otp-grid {
+  margin-top: 0.6rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.status-pill.open {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.status-pill.in_discussion {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-pill.claimed {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.status-pill.returned {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-pill.closed {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.meta-score {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.claim-block {
+  margin-top: 0.7rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+}
+
+.claim-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.35rem 0;
+}
+
+.small-text {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.oauth-note {
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.google-signin-button {
+  margin-bottom: 0.65rem;
+}
+
+label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+}
+
+input,
+textarea,
+select,
+button {
+  width: 100%;
+  font: inherit;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.three-col {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.coords {
+  align-items: end;
+}
+
+.hint {
+  margin: 0.45rem 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.primary-button,
+.ghost-button {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button {
+  border: none;
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.primary-button:hover {
+  background: var(--primary-hover);
+}
+
+.ghost-button {
+  background: #ffffff;
+  color: var(--text);
+}
+
+.status-message {
+  min-height: 1.2rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.92rem;
+}
+
+.status-message.error {
+  color: var(--danger);
+}
+
+.status-message.success {
+  color: var(--success);
+}
+
+.status-message.info {
+  color: var(--muted);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.auth-tab-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.auth-form-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+
+.auth-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auth-state {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem;
+  margin-bottom: 0.7rem;
+}
+
+.auth-hidden {
+  display: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.small-button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  width: auto;
+  background: #fff;
+  cursor: pointer;
+}
+
+.required-login-note {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.image-preview-wrap {
+  margin-top: 0.5rem;
+}
+
+.email-banner {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem;
+  margin-bottom: 0.65rem;
+  background: #f8fafc;
+}
+
+.email-banner p {
+  margin: 0.3rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.email-banner-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+}
+
+.claim-actions-row {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.claims-card {
+  grid-column: 1;
+}
+
+.claim-row {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.claim-badge {
+  display: inline-block;
+  width: fit-content;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+}
+
+.claim-badge.pending {
+  color: #854d0e;
+  background: #fef9c3;
+}
+
+.claim-badge.approved {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.claim-badge.rejected,
+.claim-badge.cancelled {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.item-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.match-score {
+  margin: 0.35rem 0 0;
+  font-size: 0.86rem;
+  color: #0f766e;
+}
+
+.preview-image {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.map-header,
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.legend {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.legend.lost {
+  color: #ef4444;
+  margin-right: 0.4rem;
+}
+
+.legend.found {
+  color: #16a34a;
+}
+
+#map {
+  width: 100%;
+  min-height: 68vh;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.actions {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.items-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.item-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.item-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.item-meta {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.item-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.item-description,
+.item-contact,
+.item-location {
+  margin: 0.55rem 0 0;
+  font-size: 0.95rem;
+}
+
+.item-image {
+  margin-top: 0.65rem;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.item-badge {
+  display: inline-flex;
+  align-items: center;
+  height: fit-content;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.76rem;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.item-badge.lost {
+  background: #ef4444;
+}
+
+.item-badge.found {
+  background: #16a34a;
+}
+
+.item-actions {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.matches-container {
+  margin-top: 0.65rem;
+}
+
+.match-row {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0.4rem 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.match-contact-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.match-empty {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.match-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1rem;
+}
+
+.match-list li {
+  margin: 0.28rem 0;
+}
+
+@media (max-width: 1050px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .map-card,
+  .form-card,
+  .filter-card,
+  .list-card {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  #map {
+    min-height: 52vh;
+  }
+}
+
+@media (max-width: 700px) {
+  .two-col,
+  .three-col,
+  .actions,
+  .item-actions {
+    grid-template-columns: 1fr;
+  }
+}
